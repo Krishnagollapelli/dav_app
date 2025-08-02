@@ -1,0 +1,18 @@
+/* styles.css */
+h1, h2, h3 {
+    color: #0077b6;
+    font-family: 'Segoe UI', sans-serif;
+}
+
+.stButton > button {
+    background-color: #0077b6;
+    color: white;
+    font-weight: bold;
+    border-radius: 10px;
+    padding: 8px 16px;
+}
+
+.stTextInput, .stTextArea, .stSlider {
+    border-radius: 8px;
+    border: 1px solid #90e0ef;
+}
