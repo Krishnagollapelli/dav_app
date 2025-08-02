@@ -7,7 +7,8 @@ import os
 from email_validator import validate_email, EmailNotValidError
 import requests
 from io import BytesIO
-import csv
+import sqlite3
+import pandas as pd
 
 # --------------------- CONFIGURATION ---------------------
 EMAIL_SENDER = "your_email@gmail.com"
@@ -21,6 +22,8 @@ TEXT_POSITION = (700, 800)
 
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "admin123"  # You can move this to environment vars
+
+DB_PATH = "feedback.db"
 # ----------------------------------------------------------
 
 # -------------- Session State for Login -------------------
@@ -33,6 +36,38 @@ if "logged_in" not in st.session_state:
 if "feedback_submitted" not in st.session_state:
     st.session_state.feedback_submitted = False
 # ------------------------------------------------------------
+
+# -------------------- Database Setup -----------------------
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            feedback TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+def insert_feedback(name, email, feedback_text):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''
+        INSERT INTO feedback (name, email, feedback) VALUES (?, ?, ?)
+    ''', (name, email, feedback_text))
+    conn.commit()
+    conn.close()
+
+def get_all_feedback():
+    conn = sqlite3.connect(DB_PATH)
+    df = pd.read_sql_query("SELECT * FROM feedback ORDER BY timestamp DESC", conn)
+    conn.close()
+    return df
+# ----------------------------------------------------------
 
 # ---------------------- Login UI --------------------------
 def login():
@@ -52,20 +87,14 @@ def login():
 def admin_dashboard():
     st.title("🛡️ Admin Panel")
     st.markdown("View submitted feedback:")
-    
-    feedback_file = "feedback_data.csv"
-    if os.path.exists(feedback_file):
-        with open(feedback_file, "r") as f:
-            rows = list(csv.reader(f))
-            if rows:
-                headers = rows[0]
-                data = rows[1:]
-                st.dataframe(data, use_container_width=True)
-                st.download_button("📥 Download CSV", f.read(), "feedback_data.csv")
-            else:
-                st.info("No feedback yet.")
+
+    df = get_all_feedback()
+    if not df.empty:
+        st.dataframe(df, use_container_width=True)
+        csv_data = df.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Download CSV", data=csv_data, file_name="feedback_data.csv", mime="text/csv")
     else:
-        st.info("No feedback submitted.")
+        st.info("No feedback submitted yet.")
 # ----------------------------------------------------------
 
 # ------------------ User Portal (Main) --------------------
@@ -88,12 +117,8 @@ def user_portal():
                     valid = validate_email(email_fb)
                     email_fb = valid.email
 
-                    # Save to CSV
-                    with open("feedback_data.csv", "a", newline="") as f:
-                        writer = csv.writer(f)
-                        if os.stat("feedback_data.csv").st_size == 0:
-                            writer.writerow(["Name", "Email", "Feedback"])
-                        writer.writerow([name_fb, email_fb, feedback])
+                    # Save feedback to DB
+                    insert_feedback(name_fb, email_fb, feedback)
 
                     st.success(f"Thanks for your feedback, {name_fb}!")
                     st.write("Your feedback:")
@@ -125,9 +150,7 @@ def user_portal():
                         valid = validate_email(email_fb)
                         email_fb = valid.email
 
-                        with open("feedback_data.csv", "a", newline="") as f:
-                            writer = csv.writer(f)
-                            writer.writerow([name_fb, email_fb, feedback])
+                        insert_feedback(name_fb, email_fb, feedback)
 
                         st.success(f"Thanks for your feedback, {name_fb}!")
                         st.write("Your feedback:")
@@ -189,12 +212,16 @@ def user_portal():
                         st.error(f"Invalid Email: {e}")
                     except Exception as e:
                         st.error(f"Something went wrong: {e}")
+
 # ----------------------------------------------------------
 
 # ------------------------ MAIN ----------------------------
-if not st.session_state.logged_in:
-    login()
-elif st.session_state.user_type == "admin":
-    admin_dashboard()
-else:
-    user_portal()
+if __name__ == "__main__":
+    init_db()
+
+    if not st.session_state.logged_in:
+        login()
+    elif st.session_state.user_type == "admin":
+        admin_dashboard()
+    else:
+        user_portal()
