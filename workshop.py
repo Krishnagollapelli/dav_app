@@ -5,16 +5,23 @@ import smtplib
 from email.message import EmailMessage
 import os
 from email_validator import validate_email, EmailNotValidError
+import requests
+from io import BytesIO
 
-# Email credentials (use environment variables for safety)
+# --------------------- CONFIGURATION ---------------------
 EMAIL_SENDER = "your_email@gmail.com"
 EMAIL_PASSWORD = "your_app_password"
 
-CERT_TEMPLATE_PATH = "certificate_template.jpg"  # Use your own template
-FONT_PATH = "arial.ttf"  # Path to a TTF font file
+# GitHub image URL for the certificate template
+CERT_TEMPLATE_URL = "https://raw.githubusercontent.com/krishnagollapelli/excelrate-cert-app/main/assets/certificate_template.jpg"
 
-# Feedback Form
-st.title("🔁 Feedback Form + Certificate")
+# Font file must be present locally
+FONT_PATH = "arial.ttf"  # You can upload this file in your working directory
+FONT_SIZE = 60
+TEXT_POSITION = (700, 800)  # Adjust based on your certificate layout
+# ----------------------------------------------------------
+
+st.title("🔁 Feedback Form + Certificate Generator")
 
 name = st.text_input("Full Name")
 email = st.text_input("Email")
@@ -25,38 +32,44 @@ if st.button("Submit Feedback & Get Certificate"):
         st.warning("Please enter your name and email.")
     else:
         try:
+            # Validate email format
             valid = validate_email(email)
             email = valid.email
 
-            # Generate certificate image
-            cert_img = Image.open(CERT_TEMPLATE_PATH)
+            # Load certificate template from GitHub URL
+            response = requests.get(CERT_TEMPLATE_URL)
+            cert_img = Image.open(BytesIO(response.content)).convert("RGB")
+
+            # Draw name on certificate
             draw = ImageDraw.Draw(cert_img)
-            font = ImageFont.truetype(FONT_PATH, 60)
+            font = ImageFont.truetype(FONT_PATH, FONT_SIZE)
+            draw.text(TEXT_POSITION, name, font=font, fill="black")
 
-            # Customize coordinates (depends on your template)
-            draw.text((700, 800), name, font=font, fill="black")
-
+            # Save as JPG
             cert_filename = f"{name.replace(' ', '_')}_certificate.jpg"
             cert_img.save(cert_filename)
 
             # Convert to PDF
+            pdf_filename = cert_filename.replace(".jpg", ".pdf")
             pdf = FPDF()
             pdf.add_page()
-            pdf.image(cert_filename, x=0, y=0, w=210, h=297)  # A4 size
-            pdf_filename = cert_filename.replace('.jpg', '.pdf')
+            pdf.image(cert_filename, x=0, y=0, w=210, h=297)  # A4 Size
             pdf.output(pdf_filename)
 
-            # Email the certificate
+            # Compose Email
             msg = EmailMessage()
             msg['Subject'] = 'Your Certificate from Excelrate!'
             msg['From'] = EMAIL_SENDER
             msg['To'] = email
-            msg.set_content(f"Dear {name},\n\nThank you for your feedback!\nFind your certificate attached.\n\nRegards,\nExcelrate Team")
+            msg.set_content(
+                f"Dear {name},\n\nThank you for your feedback!\nPlease find your certificate attached.\n\nRegards,\nExcelrate Team"
+            )
 
+            # Attach PDF
             with open(pdf_filename, 'rb') as f:
-                file_data = f.read()
-                msg.add_attachment(file_data, maintype='application', subtype='pdf', filename=pdf_filename)
+                msg.add_attachment(f.read(), maintype='application', subtype='pdf', filename=pdf_filename)
 
+            # Send Email
             with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
                 smtp.login(EMAIL_SENDER, EMAIL_PASSWORD)
                 smtp.send_message(msg)
@@ -68,6 +81,6 @@ if st.button("Submit Feedback & Get Certificate"):
             os.remove(pdf_filename)
 
         except EmailNotValidError as e:
-            st.error(f"Invalid Email: {e}")
+            st.error(f"❌ Invalid Email: {e}")
         except Exception as e:
-            st.error(f"Something went wrong: {e}")
+            st.error(f"🚨 Something went wrong: {e}")
