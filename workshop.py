@@ -7,6 +7,7 @@ import os
 from email_validator import validate_email, EmailNotValidError
 import requests
 from io import BytesIO
+import csv
 
 # --------------------- CONFIGURATION ---------------------
 EMAIL_SENDER = "your_email@gmail.com"
@@ -17,86 +18,145 @@ CERT_TEMPLATE_URL = "https://raw.githubusercontent.com/krishnagollapelli/excelra
 FONT_PATH = "arial.ttf"
 FONT_SIZE = 60
 TEXT_POSITION = (700, 800)
+
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = "admin123"  # You can move this to environment vars
 # ----------------------------------------------------------
 
-st.title("🔁 Excelrate Workshop")
+# -------------- Session State for Login -------------------
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.user_type = None
+# ----------------------------------------------------------
 
-tab1, tab2 = st.tabs(["Feedback Submission", "Get Certificate"])
-
-# ------ TAB 1: Feedback Submission ------
-with tab1:
-    st.header("📋 Submit Your Feedback")
-    name_fb = st.text_input("Full Name", key="name_fb")
-    email_fb = st.text_input("Email", key="email_fb")
-    feedback = st.text_area("Your Feedback", key="feedback")
-
-    if st.button("Submit Feedback", key="submit_feedback"):
-        if not name_fb or not email_fb or not feedback:
-            st.warning("Please fill in all the fields.")
+# ---------------------- Login UI --------------------------
+def login():
+    st.title("🔐 Login to Excelrate Portal")
+    user = st.text_input("Username")
+    passwd = st.text_input("Password", type="password")
+    if st.button("Login"):
+        if user == ADMIN_USERNAME and passwd == ADMIN_PASSWORD:
+            st.session_state.logged_in = True
+            st.session_state.user_type = "admin"
         else:
-            try:
-                valid = validate_email(email_fb)
-                email_fb = valid.email
-                # Here you can save feedback to a database or CSV if you want
-                st.success(f"Thanks for your feedback, {name_fb}!")
-                st.write("Your feedback:")
-                st.info(feedback)
-            except EmailNotValidError as e:
-                st.error(f"Invalid Email: {e}")
+            st.session_state.logged_in = True
+            st.session_state.user_type = "user"
+# ----------------------------------------------------------
 
-# ------ TAB 2: Get Certificate ------
-with tab2:
-    st.header("🎓 Get Your Certificate")
-    name_cert = st.text_input("Full Name", key="name_cert")
-    email_cert = st.text_input("Email", key="email_cert")
+# ------------------ Admin Dashboard -----------------------
+def admin_dashboard():
+    st.title("🛡️ Admin Panel")
+    st.markdown("View submitted feedback:")
+    
+    feedback_file = "feedback_data.csv"
+    if os.path.exists(feedback_file):
+        with open(feedback_file, "r") as f:
+            rows = list(csv.reader(f))
+            if rows:
+                headers = rows[0]
+                data = rows[1:]
+                st.dataframe(data, use_container_width=True)
+                st.download_button("📥 Download CSV", f.read(), "feedback_data.csv")
+            else:
+                st.info("No feedback yet.")
+    else:
+        st.info("No feedback submitted.")
+# ----------------------------------------------------------
 
-    if st.button("Generate & Email Certificate", key="send_cert"):
-        if not name_cert or not email_cert:
-            st.warning("Please enter your name and email.")
-        else:
-            try:
-                valid = validate_email(email_cert)
-                email_cert = valid.email
+# ------------------ User Portal (Main) --------------------
+def user_portal():
+    st.title("📢 Excelrate User Portal")
+    tab1, tab2 = st.tabs(["Feedback Submission", "Get Certificate"])
 
-                # Load certificate template from GitHub URL
-                response = requests.get(CERT_TEMPLATE_URL)
-                cert_img = Image.open(BytesIO(response.content)).convert("RGB")
+    # ------ Feedback ------
+    with tab1:
+        st.header("📋 Submit Your Feedback")
+        name_fb = st.text_input("Full Name", key="name_fb")
+        email_fb = st.text_input("Email", key="email_fb")
+        feedback = st.text_area("Your Feedback", key="feedback")
 
-                # Draw name on certificate
-                draw = ImageDraw.Draw(cert_img)
-                font = ImageFont.truetype(FONT_PATH, FONT_SIZE)
-                draw.text(TEXT_POSITION, name_cert, font=font, fill="black")
+        if st.button("Submit Feedback", key="submit_feedback"):
+            if not name_fb or not email_fb or not feedback:
+                st.warning("Please fill in all the fields.")
+            else:
+                try:
+                    valid = validate_email(email_fb)
+                    email_fb = valid.email
 
-                cert_filename = f"{name_cert.replace(' ', '_')}_certificate.jpg"
-                cert_img.save(cert_filename)
+                    # Save to CSV
+                    with open("feedback_data.csv", "a", newline="") as f:
+                        writer = csv.writer(f)
+                        if os.stat("feedback_data.csv").st_size == 0:
+                            writer.writerow(["Name", "Email", "Feedback"])
+                        writer.writerow([name_fb, email_fb, feedback])
 
-                pdf_filename = cert_filename.replace(".jpg", ".pdf")
-                pdf = FPDF()
-                pdf.add_page()
-                pdf.image(cert_filename, x=0, y=0, w=210, h=297)
-                pdf.output(pdf_filename)
+                    st.success(f"Thanks for your feedback, {name_fb}!")
+                    st.write("Your feedback:")
+                    st.info(feedback)
+                except EmailNotValidError as e:
+                    st.error(f"Invalid Email: {e}")
 
-                msg = EmailMessage()
-                msg['Subject'] = 'Your Certificate from Excelrate!'
-                msg['From'] = EMAIL_SENDER
-                msg['To'] = email_cert
-                msg.set_content(
-                    f"Dear {name_cert},\n\nThank you for participating!\nPlease find your certificate attached.\n\nRegards,\nExcelrate Team"
-                )
+    # ------ Certificate ------
+    with tab2:
+        st.header("🎓 Get Your Certificate")
+        name_cert = st.text_input("Full Name", key="name_cert")
+        email_cert = st.text_input("Email", key="email_cert")
 
-                with open(pdf_filename, 'rb') as f:
-                    msg.add_attachment(f.read(), maintype='application', subtype='pdf', filename=pdf_filename)
+        if st.button("Generate & Email Certificate", key="send_cert"):
+            if not name_cert or not email_cert:
+                st.warning("Please enter your name and email.")
+            else:
+                try:
+                    valid = validate_email(email_cert)
+                    email_cert = valid.email
 
-                with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-                    smtp.login(EMAIL_SENDER, EMAIL_PASSWORD)
-                    smtp.send_message(msg)
+                    # Load certificate template
+                    response = requests.get(CERT_TEMPLATE_URL)
+                    cert_img = Image.open(BytesIO(response.content)).convert("RGB")
 
-                st.success("✅ Certificate sent to your email!")
+                    # Draw name
+                    draw = ImageDraw.Draw(cert_img)
+                    font = ImageFont.truetype(FONT_PATH, FONT_SIZE)
+                    draw.text(TEXT_POSITION, name_cert, font=font, fill="black")
 
-                os.remove(cert_filename)
-                os.remove(pdf_filename)
+                    cert_filename = f"{name_cert.replace(' ', '_')}_certificate.jpg"
+                    cert_img.save(cert_filename)
 
-            except EmailNotValidError as e:
-                st.error(f"Invalid Email: {e}")
-            except Exception as e:
-                st.error(f"Something went wrong: {e}")
+                    pdf_filename = cert_filename.replace(".jpg", ".pdf")
+                    pdf = FPDF()
+                    pdf.add_page()
+                    pdf.image(cert_filename, x=0, y=0, w=210, h=297)
+                    pdf.output(pdf_filename)
+
+                    # Email
+                    msg = EmailMessage()
+                    msg['Subject'] = 'Your Certificate from Excelrate!'
+                    msg['From'] = EMAIL_SENDER
+                    msg['To'] = email_cert
+                    msg.set_content(
+                        f"Dear {name_cert},\n\nThank you for participating!\nPlease find your certificate attached.\n\nRegards,\nExcelrate Team"
+                    )
+                    with open(pdf_filename, 'rb') as f:
+                        msg.add_attachment(f.read(), maintype='application', subtype='pdf', filename=pdf_filename)
+
+                    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+                        smtp.login(EMAIL_SENDER, EMAIL_PASSWORD)
+                        smtp.send_message(msg)
+
+                    st.success("✅ Certificate sent to your email!")
+                    os.remove(cert_filename)
+                    os.remove(pdf_filename)
+
+                except EmailNotValidError as e:
+                    st.error(f"Invalid Email: {e}")
+                except Exception as e:
+                    st.error(f"Something went wrong: {e}")
+# ----------------------------------------------------------
+
+# ------------------------ MAIN ----------------------------
+if not st.session_state.logged_in:
+    login()
+elif st.session_state.user_type == "admin":
+    admin_dashboard()
+else:
+    user_portal()
