@@ -118,14 +118,13 @@ def view_feedback():
 # ---------------------- Menu ---------------------- #
 
 def menu():
-    print("\n1. Submit Feedback (User)")
-    print("2. Add Participant (Admin)")
-    print("3. Toggle Feedback Access (Admin)")
-    print("4. View All Feedback (Admin)")
-    print("5. Exit")
-
     while True:
-        menu()
+        print("\n1. Submit Feedback (User)")
+        print("2. Add Participant (Admin)")
+        print("3. Toggle Feedback Access (Admin)")
+        print("4. View All Feedback (Admin)")
+        print("5. Exit")
+
         choice = input("Enter option: ")
 
         if choice == "1":
@@ -155,6 +154,3 @@ def menu():
 
         else:
             print("Invalid option. Try again.")
-
-if __name__ == "__main__":
-    menu()
