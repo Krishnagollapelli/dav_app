@@ -1,4 +1,6 @@
-import streamlit as st
+# backend.py
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, EmailStr
 from PIL import Image, ImageDraw, ImageFont
 import pandas as pd
 import os
@@ -8,40 +10,26 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Inject CSS
-def local_css(file_name):
-    with open(file_name) as f:
-        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
-local_css("styles.css")
+app = FastAPI()
 
-st.title("🎓 Excelrate Workshop Feedback & Certificate")
+class Feedback(BaseModel):
+    name: str
+    email: EmailStr
+    rating: int
+    comments: str = ""
 
-# Form
-with st.form("feedback_form"):
-    st.subheader("📋 Feedback Form")
-    name = st.text_input("Full Name")
-    email = st.text_input("Email Address")
-    rating = st.slider("Workshop Rating", 1, 5)
-    comments = st.text_area("Comments or Suggestions")
-    submit = st.form_submit_button("Submit and Receive Certificate")
-
-# Certificate Generator
 def generate_certificate(name, cert_path):
-    try:
-        if os.path.exists("certificate_template.png"):
-            template = Image.open("certificate_template.png")
-        else:
-            template = Image.new("RGB", (1200, 800), color=(255, 255, 255))
+    if os.path.exists("certificate_template.png"):
+        template = Image.open("certificate_template.png")
+    else:
+        template = Image.new("RGB", (1200, 800), color=(255, 255, 255))
 
-        draw = ImageDraw.Draw(template)
-        font = ImageFont.truetype("arial.ttf", 60)
-        draw.text((300, 350), "Certificate of Participation", font=font, fill="black")
-        draw.text((300, 450), f"Awarded to: {name}", font=font, fill="black")
-        template.save(cert_path)
-    except Exception as e:
-        st.error(f"Certificate generation failed: {e}")
+    draw = ImageDraw.Draw(template)
+    font = ImageFont.truetype("arial.ttf", 60)
+    draw.text((300, 350), "Certificate of Participation", font=font, fill="black")
+    draw.text((300, 450), f"Awarded to: {name}", font=font, fill="black")
+    template.save(cert_path)
 
-# Email Sender
 def send_certificate(email_to, name, cert_path):
     msg = EmailMessage()
     msg['Subject'] = "🎉 Your Workshop Certificate - Excelrate"
@@ -50,7 +38,6 @@ def send_certificate(email_to, name, cert_path):
     msg.set_content(
         f"Dear {name},\n\nThanks for attending Excelrate Workshop!\nPlease find your certificate attached.\n\nRegards,\nTeam Excelrate"
     )
-
     with open(cert_path, 'rb') as f:
         file_data = f.read()
         file_name = os.path.basename(cert_path)
@@ -60,27 +47,28 @@ def send_certificate(email_to, name, cert_path):
         smtp.login(os.getenv("EMAIL_ID"), os.getenv("EMAIL_PASS"))
         smtp.send_message(msg)
 
-# Handle Form Submission
-if submit:
-    if not name or not email:
-        st.error("Please enter both name and email.")
+@app.post("/submit-feedback")
+async def submit_feedback(feedback: Feedback):
+    # Save feedback to CSV
+    new_entry = pd.DataFrame([[feedback.name, feedback.email, feedback.rating, feedback.comments]],
+                             columns=["Name", "Email", "Rating", "Comments"])
+    if os.path.exists("feedback.csv"):
+        existing = pd.read_csv("feedback.csv")
+        df = pd.concat([existing, new_entry], ignore_index=True)
     else:
-        feedback = pd.DataFrame([[name, email, rating, comments]],
-                                columns=["Name", "Email", "Rating", "Comments"])
+        df = new_entry
+    df.to_csv("feedback.csv", index=False)
 
-        if os.path.exists("feedback.csv"):
-            existing = pd.read_csv("feedback.csv")
-            feedback = pd.concat([existing, feedback], ignore_index=True)
-        feedback.to_csv("feedback.csv", index=False)
+    # Generate certificate
+    cert_dir = "certificates"
+    os.makedirs(cert_dir, exist_ok=True)
+    cert_path = os.path.join(cert_dir, f"{feedback.name.replace(' ', '_')}.png")
+    generate_certificate(feedback.name, cert_path)
 
-        cert_dir = "certificates"
-        os.makedirs(cert_dir, exist_ok=True)
-        cert_path = os.path.join(cert_dir, f"{name.replace(' ', '_')}.png")
+    # Send email
+    try:
+        send_certificate(feedback.email, feedback.name, cert_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
 
-        generate_certificate(name, cert_path)
-
-        try:
-            send_certificate(email, name, cert_path)
-            st.success("✅ Feedback submitted and certificate sent!")
-        except Exception as e:
-            st.error(f"❌ Email failed: {e}")
+    return {"message": "Feedback received and certificate sent to your email."}
