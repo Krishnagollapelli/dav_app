@@ -10,8 +10,30 @@ load_dotenv()
 EMAIL_ID = os.getenv("EMAIL_ID")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
 
+PARTICIPANTS_CSV = "participants.csv"
 FEEDBACK_CSV = "feedback.csv"
-CERTIFICATE_DIR = "certificates"
+CERT_DIR = "certificates"
+
+# ---------------------- Core Functions ---------------------- #
+
+def load_participants():
+    if not os.path.exists(PARTICIPANTS_CSV):
+        return pd.DataFrame(columns=["Name", "Email", "Allowed", "FeedbackSubmitted"])
+    return pd.read_csv(PARTICIPANTS_CSV)
+
+def save_participants(df):
+    df.to_csv(PARTICIPANTS_CSV, index=False)
+
+def is_user_allowed(name, email):
+    df = load_participants()
+    user = df[(df["Name"] == name) & (df["Email"] == email)]
+    if user.empty:
+        return False, "User not registered"
+    if user.iloc[0]["Allowed"].lower() != "yes":
+        return False, "You are not allowed to submit feedback"
+    if user.iloc[0]["FeedbackSubmitted"].lower() == "yes":
+        return False, "Feedback already submitted"
+    return True, ""
 
 def generate_certificate(name, cert_path):
     if os.path.exists("certificate_template.png"):
@@ -27,73 +49,112 @@ def generate_certificate(name, cert_path):
 
 def send_certificate(email_to, name, cert_path):
     msg = EmailMessage()
-    msg['Subject'] = "🎉 Your Workshop Certificate - Excelrate"
-    msg['From'] = EMAIL_ID
-    msg['To'] = email_to
-    msg.set_content(
-        f"Dear {name},\n\nThanks for attending Excelrate Workshop!\nPlease find your certificate attached.\n\nRegards,\nTeam Excelrate"
-    )
+    msg["Subject"] = "🎓 Your Certificate - Excelrate Workshop"
+    msg["From"] = EMAIL_ID
+    msg["To"] = email_to
+    msg.set_content(f"Hi {name},\n\nThanks for your feedback! Here's your certificate.\n\nRegards,\nExcelrate Team")
     with open(cert_path, 'rb') as f:
-        file_data = f.read()
-        file_name = os.path.basename(cert_path)
-        msg.add_attachment(file_data, maintype='image', subtype='png', filename=file_name)
+        msg.add_attachment(f.read(), maintype='image', subtype='png', filename=os.path.basename(cert_path))
 
-    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
         smtp.login(EMAIL_ID, EMAIL_PASS)
         smtp.send_message(msg)
 
 def submit_feedback(name, email, rating, comments):
+    allowed, reason = is_user_allowed(name, email)
+    if not allowed:
+        print(f"⛔ {reason}")
+        return
+
     # Save feedback
-    new_entry = pd.DataFrame([[name, email, rating, comments]],
-                             columns=["Name", "Email", "Rating", "Comments"])
+    feedback_df = pd.DataFrame([[name, email, rating, comments]],
+                               columns=["Name", "Email", "Rating", "Comments"])
     if os.path.exists(FEEDBACK_CSV):
         existing = pd.read_csv(FEEDBACK_CSV)
-        df = pd.concat([existing, new_entry], ignore_index=True)
-    else:
-        df = new_entry
-    df.to_csv(FEEDBACK_CSV, index=False)
+        feedback_df = pd.concat([existing, feedback_df], ignore_index=True)
+    feedback_df.to_csv(FEEDBACK_CSV, index=False)
 
-    # Generate certificate
-    os.makedirs(CERTIFICATE_DIR, exist_ok=True)
-    cert_path = os.path.join(CERTIFICATE_DIR, f"{name.replace(' ', '_')}.png")
+    # Update participant status
+    df = load_participants()
+    df.loc[(df["Name"] == name) & (df["Email"] == email), "FeedbackSubmitted"] = "yes"
+    save_participants(df)
+
+    # Generate & send certificate
+    os.makedirs(CERT_DIR, exist_ok=True)
+    cert_path = os.path.join(CERT_DIR, f"{name.replace(' ', '_')}.png")
     generate_certificate(name, cert_path)
-
-    # Send certificate email
     send_certificate(email, name, cert_path)
+    print(f"✅ Feedback submitted and certificate sent to {email}.")
 
-    print(f"Feedback submitted for {name} and certificate sent to {email}.")
+# ---------------------- Admin Functions ---------------------- #
+
+def add_participant(name, email):
+    df = load_participants()
+    if ((df["Name"] == name) & (df["Email"] == email)).any():
+        print("Participant already exists.")
+        return
+    new_row = pd.DataFrame([[name, email, "yes", "no"]], columns=["Name", "Email", "Allowed", "FeedbackSubmitted"])
+    df = pd.concat([df, new_row], ignore_index=True)
+    save_participants(df)
+    print(f"✅ Participant {name} added.")
+
+def toggle_access(name, email, status):
+    df = load_participants()
+    mask = (df["Name"] == name) & (df["Email"] == email)
+    if not mask.any():
+        print("User not found.")
+        return
+    df.loc[mask, "Allowed"] = status
+    save_participants(df)
+    print(f"Access updated for {name} to {status}.")
 
 def view_feedback():
     if not os.path.exists(FEEDBACK_CSV):
-        print("No feedback available.")
+        print("No feedback submitted yet.")
         return
     df = pd.read_csv(FEEDBACK_CSV)
     print(df)
 
-def get_certificate_path(name):
-    cert_path = os.path.join(CERTIFICATE_DIR, f"{name.replace(' ', '_')}.png")
-    if os.path.exists(cert_path):
-        print(f"Certificate path: {cert_path}")
-    else:
-        print("Certificate not found.")
+# ---------------------- Menu ---------------------- #
 
-# Example usage (can replace this with any UI or CLI integration)
+def menu():
+    print("\n1. Submit Feedback (User)")
+    print("2. Add Participant (Admin)")
+    print("3. Toggle Feedback Access (Admin)")
+    print("4. View All Feedback (Admin)")
+    print("5. Exit")
+
+    while True:
+        menu()
+        choice = input("Enter option: ")
+
+        if choice == "1":
+            name = input("Your Name: ")
+            email = input("Your Email: ")
+            rating = int(input("Rating (1-5): "))
+            comments = input("Comments: ")
+            submit_feedback(name, email, rating, comments)
+
+        elif choice == "2":
+            name = input("Participant Name: ")
+            email = input("Participant Email: ")
+            add_participant(name, email)
+
+        elif choice == "3":
+            name = input("Participant Name: ")
+            email = input("Participant Email: ")
+            status = input("Set access to (yes/no): ")
+            toggle_access(name, email, status)
+
+        elif choice == "4":
+            view_feedback()
+
+        elif choice == "5":
+            print("Exiting...")
+            break
+
+        else:
+            print("Invalid option. Try again.")
+
 if __name__ == "__main__":
-    print("1. Submit feedback")
-    print("2. View all feedback (admin)")
-    print("3. Get certificate path (admin)")
-    choice = input("Enter option number: ")
-
-    if choice == "1":
-        n = input("Name: ")
-        e = input("Email: ")
-        r = int(input("Rating (1-5): "))
-        c = input("Comments: ")
-        submit_feedback(n, e, r, c)
-    elif choice == "2":
-        view_feedback()
-    elif choice == "3":
-        n = input("Enter name to get certificate path: ")
-        get_certificate_path(n)
-    else:
-        print("Invalid option.")
+    menu()
