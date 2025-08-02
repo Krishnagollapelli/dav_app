@@ -69,5 +69,4 @@ if submit:
             send_certificate(email, name, cert_path)
             st.success("✅ Feedback submitted and certificate sent to your email!")
         except Exception as e:
-            st.error(f"❌ Fai
-
+            st.error(f"❌ Failed to send email: {e}")
