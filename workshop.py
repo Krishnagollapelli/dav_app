@@ -1,5 +1,3 @@
-from fastapi import FastAPI, HTTPException, Header, Response
-from pydantic import BaseModel, EmailStr
 from PIL import Image, ImageDraw, ImageFont
 import pandas as pd
 import os
@@ -9,15 +7,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-app = FastAPI()
+EMAIL_ID = os.getenv("EMAIL_ID")
+EMAIL_PASS = os.getenv("EMAIL_PASS")
 
-ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")  # Put your admin API key in .env
-
-class Feedback(BaseModel):
-    name: str
-    email: EmailStr
-    rating: int
-    comments: str = ""
+FEEDBACK_CSV = "feedback.csv"
+CERTIFICATE_DIR = "certificates"
 
 def generate_certificate(name, cert_path):
     if os.path.exists("certificate_template.png"):
@@ -34,7 +28,7 @@ def generate_certificate(name, cert_path):
 def send_certificate(email_to, name, cert_path):
     msg = EmailMessage()
     msg['Subject'] = "🎉 Your Workshop Certificate - Excelrate"
-    msg['From'] = os.getenv("EMAIL_ID")
+    msg['From'] = EMAIL_ID
     msg['To'] = email_to
     msg.set_content(
         f"Dear {name},\n\nThanks for attending Excelrate Workshop!\nPlease find your certificate attached.\n\nRegards,\nTeam Excelrate"
@@ -45,53 +39,61 @@ def send_certificate(email_to, name, cert_path):
         msg.add_attachment(file_data, maintype='image', subtype='png', filename=file_name)
 
     with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-        smtp.login(os.getenv("EMAIL_ID"), os.getenv("EMAIL_PASS"))
+        smtp.login(EMAIL_ID, EMAIL_PASS)
         smtp.send_message(msg)
 
-def verify_admin(api_key: str):
-    if api_key != ADMIN_API_KEY:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-@app.post("/submit-feedback")
-async def submit_feedback(feedback: Feedback):
+def submit_feedback(name, email, rating, comments):
     # Save feedback
-    new_entry = pd.DataFrame([[feedback.name, feedback.email, feedback.rating, feedback.comments]],
+    new_entry = pd.DataFrame([[name, email, rating, comments]],
                              columns=["Name", "Email", "Rating", "Comments"])
-    if os.path.exists("feedback.csv"):
-        existing = pd.read_csv("feedback.csv")
+    if os.path.exists(FEEDBACK_CSV):
+        existing = pd.read_csv(FEEDBACK_CSV)
         df = pd.concat([existing, new_entry], ignore_index=True)
     else:
         df = new_entry
-    df.to_csv("feedback.csv", index=False)
+    df.to_csv(FEEDBACK_CSV, index=False)
 
     # Generate certificate
-    cert_dir = "certificates"
-    os.makedirs(cert_dir, exist_ok=True)
-    cert_path = os.path.join(cert_dir, f"{feedback.name.replace(' ', '_')}.png")
-    generate_certificate(feedback.name, cert_path)
+    os.makedirs(CERTIFICATE_DIR, exist_ok=True)
+    cert_path = os.path.join(CERTIFICATE_DIR, f"{name.replace(' ', '_')}.png")
+    generate_certificate(name, cert_path)
 
-    # Send email
-    try:
-        send_certificate(feedback.email, feedback.name, cert_path)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
+    # Send certificate email
+    send_certificate(email, name, cert_path)
 
-    return {"message": "Feedback received and certificate sent."}
+    print(f"Feedback submitted for {name} and certificate sent to {email}.")
 
-@app.get("/feedbacks")
-async def get_all_feedbacks(api_key: str = Header(...)):
-    verify_admin(api_key)
-    if not os.path.exists("feedback.csv"):
-        return {"feedbacks": []}
-    df = pd.read_csv("feedback.csv")
-    return {"feedbacks": df.to_dict(orient="records")}
+def view_feedback():
+    if not os.path.exists(FEEDBACK_CSV):
+        print("No feedback available.")
+        return
+    df = pd.read_csv(FEEDBACK_CSV)
+    print(df)
 
-@app.get("/download-certificate/{name}")
-async def download_certificate(name: str, api_key: str = Header(...)):
-    verify_admin(api_key)
-    cert_path = os.path.join("certificates", f"{name.replace(' ', '_')}.png")
-    if not os.path.exists(cert_path):
-        raise HTTPException(status_code=404, detail="Certificate not found")
-    with open(cert_path, "rb") as f:
-        content = f.read()
-    return Response(content, media_type="image/png")
+def get_certificate_path(name):
+    cert_path = os.path.join(CERTIFICATE_DIR, f"{name.replace(' ', '_')}.png")
+    if os.path.exists(cert_path):
+        print(f"Certificate path: {cert_path}")
+    else:
+        print("Certificate not found.")
+
+# Example usage (can replace this with any UI or CLI integration)
+if __name__ == "__main__":
+    print("1. Submit feedback")
+    print("2. View all feedback (admin)")
+    print("3. Get certificate path (admin)")
+    choice = input("Enter option number: ")
+
+    if choice == "1":
+        n = input("Name: ")
+        e = input("Email: ")
+        r = int(input("Rating (1-5): "))
+        c = input("Comments: ")
+        submit_feedback(n, e, r, c)
+    elif choice == "2":
+        view_feedback()
+    elif choice == "3":
+        n = input("Enter name to get certificate path: ")
+        get_certificate_path(n)
+    else:
+        print("Invalid option.")
