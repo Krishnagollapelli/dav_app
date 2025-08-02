@@ -12,75 +12,91 @@ from io import BytesIO
 EMAIL_SENDER = "your_email@gmail.com"
 EMAIL_PASSWORD = "your_app_password"
 
-# GitHub image URL for the certificate template
 CERT_TEMPLATE_URL = "https://raw.githubusercontent.com/krishnagollapelli/excelrate-cert-app/main/assets/certificate_template.jpg"
 
-# Font file must be present locally
-FONT_PATH = "arial.ttf"  # You can upload this file in your working directory
+FONT_PATH = "arial.ttf"
 FONT_SIZE = 60
-TEXT_POSITION = (700, 800)  # Adjust based on your certificate layout
+TEXT_POSITION = (700, 800)
 # ----------------------------------------------------------
 
-st.title("🔁 Feedback Form + Certificate Generator")
+st.title("🔁 Excelrate Workshop")
 
-name = st.text_input("Full Name")
-email = st.text_input("Email")
-feedback = st.text_area("Your Feedback")
+tab1, tab2 = st.tabs(["Feedback Submission", "Get Certificate"])
 
-if st.button("Submit Feedback & Get Certificate"):
-    if not name or not email:
-        st.warning("Please enter your name and email.")
-    else:
-        try:
-            # Validate email format
-            valid = validate_email(email)
-            email = valid.email
+# ------ TAB 1: Feedback Submission ------
+with tab1:
+    st.header("📋 Submit Your Feedback")
+    name_fb = st.text_input("Full Name", key="name_fb")
+    email_fb = st.text_input("Email", key="email_fb")
+    feedback = st.text_area("Your Feedback", key="feedback")
 
-            # Load certificate template from GitHub URL
-            response = requests.get(CERT_TEMPLATE_URL)
-            cert_img = Image.open(BytesIO(response.content)).convert("RGB")
+    if st.button("Submit Feedback", key="submit_feedback"):
+        if not name_fb or not email_fb or not feedback:
+            st.warning("Please fill in all the fields.")
+        else:
+            try:
+                valid = validate_email(email_fb)
+                email_fb = valid.email
+                # Here you can save feedback to a database or CSV if you want
+                st.success(f"Thanks for your feedback, {name_fb}!")
+                st.write("Your feedback:")
+                st.info(feedback)
+            except EmailNotValidError as e:
+                st.error(f"Invalid Email: {e}")
 
-            # Draw name on certificate
-            draw = ImageDraw.Draw(cert_img)
-            font = ImageFont.truetype(FONT_PATH, FONT_SIZE)
-            draw.text(TEXT_POSITION, name, font=font, fill="black")
+# ------ TAB 2: Get Certificate ------
+with tab2:
+    st.header("🎓 Get Your Certificate")
+    name_cert = st.text_input("Full Name", key="name_cert")
+    email_cert = st.text_input("Email", key="email_cert")
 
-            # Save as JPG
-            cert_filename = f"{name.replace(' ', '_')}_certificate.jpg"
-            cert_img.save(cert_filename)
+    if st.button("Generate & Email Certificate", key="send_cert"):
+        if not name_cert or not email_cert:
+            st.warning("Please enter your name and email.")
+        else:
+            try:
+                valid = validate_email(email_cert)
+                email_cert = valid.email
 
-            # Convert to PDF
-            pdf_filename = cert_filename.replace(".jpg", ".pdf")
-            pdf = FPDF()
-            pdf.add_page()
-            pdf.image(cert_filename, x=0, y=0, w=210, h=297)  # A4 Size
-            pdf.output(pdf_filename)
+                # Load certificate template from GitHub URL
+                response = requests.get(CERT_TEMPLATE_URL)
+                cert_img = Image.open(BytesIO(response.content)).convert("RGB")
 
-            # Compose Email
-            msg = EmailMessage()
-            msg['Subject'] = 'Your Certificate from Excelrate!'
-            msg['From'] = EMAIL_SENDER
-            msg['To'] = email
-            msg.set_content(
-                f"Dear {name},\n\nThank you for your feedback!\nPlease find your certificate attached.\n\nRegards,\nExcelrate Team"
-            )
+                # Draw name on certificate
+                draw = ImageDraw.Draw(cert_img)
+                font = ImageFont.truetype(FONT_PATH, FONT_SIZE)
+                draw.text(TEXT_POSITION, name_cert, font=font, fill="black")
 
-            # Attach PDF
-            with open(pdf_filename, 'rb') as f:
-                msg.add_attachment(f.read(), maintype='application', subtype='pdf', filename=pdf_filename)
+                cert_filename = f"{name_cert.replace(' ', '_')}_certificate.jpg"
+                cert_img.save(cert_filename)
 
-            # Send Email
-            with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-                smtp.login(EMAIL_SENDER, EMAIL_PASSWORD)
-                smtp.send_message(msg)
+                pdf_filename = cert_filename.replace(".jpg", ".pdf")
+                pdf = FPDF()
+                pdf.add_page()
+                pdf.image(cert_filename, x=0, y=0, w=210, h=297)
+                pdf.output(pdf_filename)
 
-            st.success("✅ Certificate sent to your email!")
+                msg = EmailMessage()
+                msg['Subject'] = 'Your Certificate from Excelrate!'
+                msg['From'] = EMAIL_SENDER
+                msg['To'] = email_cert
+                msg.set_content(
+                    f"Dear {name_cert},\n\nThank you for participating!\nPlease find your certificate attached.\n\nRegards,\nExcelrate Team"
+                )
 
-            # Clean up files
-            os.remove(cert_filename)
-            os.remove(pdf_filename)
+                with open(pdf_filename, 'rb') as f:
+                    msg.add_attachment(f.read(), maintype='application', subtype='pdf', filename=pdf_filename)
 
-        except EmailNotValidError as e:
-            st.error(f"❌ Invalid Email: {e}")
-        except Exception as e:
-            st.error(f"🚨 Something went wrong: {e}")
+                with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+                    smtp.login(EMAIL_SENDER, EMAIL_PASSWORD)
+                    smtp.send_message(msg)
+
+                st.success("✅ Certificate sent to your email!")
+
+                os.remove(cert_filename)
+                os.remove(pdf_filename)
+
+            except EmailNotValidError as e:
+                st.error(f"Invalid Email: {e}")
+            except Exception as e:
+                st.error(f"Something went wrong: {e}")
