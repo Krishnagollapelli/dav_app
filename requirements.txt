@@ -1,4 +1,4 @@
 streamlit
 pillow
-pandas
-python-dotenv
+fpdf==1.7.2
+email-validator
