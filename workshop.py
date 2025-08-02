@@ -1,5 +1,4 @@
-# backend.py
-from fastapi import FastAPI, HTTPException
+
 from pydantic import BaseModel, EmailStr
 from PIL import Image, ImageDraw, ImageFont
 import pandas as pd
