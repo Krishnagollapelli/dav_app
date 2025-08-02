@@ -40,4 +40,16 @@ def send_certificate(email_to, name, cert_path):
 def main():
     print("📝 Excelrate Feedback Form\n")
     name = input("Enter your full name: ")
-    email = in
+    email = input("Enter your email: ")
+    feedback = input("Write your feedback: ")
+
+    print("\n✅ Generating certificate...")
+    cert_path = generate_certificate(name)
+
+    print("✅ Sending certificate to email...")
+    send_certificate(email, name, cert_path)
+
+    print("🎉 Done! Check your email for the certificate.")
+
+if __name__ == "__main__":
+    main()
