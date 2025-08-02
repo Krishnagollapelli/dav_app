@@ -1,55 +1,73 @@
+import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
+from fpdf import FPDF
 import smtplib
 from email.message import EmailMessage
 import os
-from dotenv import load_dotenv
+from email_validator import validate_email, EmailNotValidError
 
-load_dotenv()
+# Email credentials (use environment variables for safety)
+EMAIL_SENDER = "your_email@gmail.com"
+EMAIL_PASSWORD = "your_app_password"
 
-EMAIL_ID = os.getenv("EMAIL_ID")
-EMAIL_PASS = os.getenv("EMAIL_PASS")
+CERT_TEMPLATE_PATH = "certificate_template.jpg"  # Use your own template
+FONT_PATH = "arial.ttf"  # Path to a TTF font file
 
-def generate_certificate(name):
-    cert_path = f"{name.replace(' ', '_')}_certificate.png"
-    if os.path.exists("certificate_template.png"):
-        template = Image.open("certificate_template.png")
+# Feedback Form
+st.title("🔁 Feedback Form + Certificate")
+
+name = st.text_input("Full Name")
+email = st.text_input("Email")
+feedback = st.text_area("Your Feedback")
+
+if st.button("Submit Feedback & Get Certificate"):
+    if not name or not email:
+        st.warning("Please enter your name and email.")
     else:
-        template = Image.new("RGB", (1200, 800), color=(255, 255, 255))
+        try:
+            valid = validate_email(email)
+            email = valid.email
 
-    draw = ImageDraw.Draw(template)
-    font = ImageFont.truetype("arial.ttf", 60)
-    draw.text((300, 350), "Certificate of Participation", font=font, fill="black")
-    draw.text((300, 450), f"Awarded to: {name}", font=font, fill="black")
-    template.save(cert_path)
-    return cert_path
+            # Generate certificate image
+            cert_img = Image.open(CERT_TEMPLATE_PATH)
+            draw = ImageDraw.Draw(cert_img)
+            font = ImageFont.truetype(FONT_PATH, 60)
 
-def send_certificate(email_to, name, cert_path):
-    msg = EmailMessage()
-    msg["Subject"] = "🎓 Your Certificate - Excelrate Workshop"
-    msg["From"] = EMAIL_ID
-    msg["To"] = email_to
-    msg.set_content(f"Hi {name},\n\nThanks for your feedback! Here's your certificate.\n\nRegards,\nTeam Excelrate")
+            # Customize coordinates (depends on your template)
+            draw.text((700, 800), name, font=font, fill="black")
 
-    with open(cert_path, 'rb') as f:
-        msg.add_attachment(f.read(), maintype='image', subtype='png', filename=os.path.basename(cert_path))
+            cert_filename = f"{name.replace(' ', '_')}_certificate.jpg"
+            cert_img.save(cert_filename)
 
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
-        smtp.login(EMAIL_ID, EMAIL_PASS)
-        smtp.send_message(msg)
+            # Convert to PDF
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.image(cert_filename, x=0, y=0, w=210, h=297)  # A4 size
+            pdf_filename = cert_filename.replace('.jpg', '.pdf')
+            pdf.output(pdf_filename)
 
-def main():
-    print("📝 Excelrate Feedback Form\n")
-    name = input("Enter your full name: ")
-    email = input("Enter your email: ")
-    feedback = input("Write your feedback: ")
+            # Email the certificate
+            msg = EmailMessage()
+            msg['Subject'] = 'Your Certificate from Excelrate!'
+            msg['From'] = EMAIL_SENDER
+            msg['To'] = email
+            msg.set_content(f"Dear {name},\n\nThank you for your feedback!\nFind your certificate attached.\n\nRegards,\nExcelrate Team")
 
-    print("\n✅ Generating certificate...")
-    cert_path = generate_certificate(name)
+            with open(pdf_filename, 'rb') as f:
+                file_data = f.read()
+                msg.add_attachment(file_data, maintype='application', subtype='pdf', filename=pdf_filename)
 
-    print("✅ Sending certificate to email...")
-    send_certificate(email, name, cert_path)
+            with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+                smtp.login(EMAIL_SENDER, EMAIL_PASSWORD)
+                smtp.send_message(msg)
 
-    print("🎉 Done! Check your email for the certificate.")
+            st.success("✅ Certificate sent to your email!")
 
-if __name__ == "__main__":
-    main()
+            # Clean up files
+            os.remove(cert_filename)
+            os.remove(pdf_filename)
+
+        except EmailNotValidError as e:
+            st.error(f"Invalid Email: {e}")
+        except Exception as e:
+            st.error(f"Something went wrong: {e}")
