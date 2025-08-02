@@ -1,4 +1,4 @@
-
+from fastapi import FastAPI, HTTPException, Depends, Header, Response
 from pydantic import BaseModel, EmailStr
 from PIL import Image, ImageDraw, ImageFont
 import pandas as pd
@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = FastAPI()
+
+ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")  # Set this in your .env file
 
 class Feedback(BaseModel):
     name: str
@@ -46,6 +48,10 @@ def send_certificate(email_to, name, cert_path):
         smtp.login(os.getenv("EMAIL_ID"), os.getenv("EMAIL_PASS"))
         smtp.send_message(msg)
 
+def verify_admin(api_key: str = Header(...)):
+    if api_key != ADMIN_API_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
 @app.post("/submit-feedback")
 async def submit_feedback(feedback: Feedback):
     # Save feedback to CSV
@@ -71,3 +77,16 @@ async def submit_feedback(feedback: Feedback):
         raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
 
     return {"message": "Feedback received and certificate sent to your email."}
+
+@app.get("/feedbacks")
+async def get_all_feedbacks(api_key: str = Header(...)):
+    verify_admin(api_key)
+    if not os.path.exists("feedback.csv"):
+        return {"feedbacks": []}
+    df = pd.read_csv("feedback.csv")
+    return {"feedbacks": df.to_dict(orient="records")}
+
+@app.get("/download-certificate/{name}")
+async def download_certificate(name: str, api_key: str = Header(...)):
+    verify_admin(api_key)
+    cert_path = os.pa_
