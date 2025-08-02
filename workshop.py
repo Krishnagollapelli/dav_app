@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Header, Response
+from fastapi import FastAPI, HTTPException, Header, Response
 from pydantic import BaseModel, EmailStr
 from PIL import Image, ImageDraw, ImageFont
 import pandas as pd
@@ -11,7 +11,7 @@ load_dotenv()
 
 app = FastAPI()
 
-ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")  # Set this in your .env file
+ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")  # Put your admin API key in .env
 
 class Feedback(BaseModel):
     name: str
@@ -48,13 +48,13 @@ def send_certificate(email_to, name, cert_path):
         smtp.login(os.getenv("EMAIL_ID"), os.getenv("EMAIL_PASS"))
         smtp.send_message(msg)
 
-def verify_admin(api_key: str = Header(...)):
+def verify_admin(api_key: str):
     if api_key != ADMIN_API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 @app.post("/submit-feedback")
 async def submit_feedback(feedback: Feedback):
-    # Save feedback to CSV
+    # Save feedback
     new_entry = pd.DataFrame([[feedback.name, feedback.email, feedback.rating, feedback.comments]],
                              columns=["Name", "Email", "Rating", "Comments"])
     if os.path.exists("feedback.csv"):
@@ -76,7 +76,7 @@ async def submit_feedback(feedback: Feedback):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
 
-    return {"message": "Feedback received and certificate sent to your email."}
+    return {"message": "Feedback received and certificate sent."}
 
 @app.get("/feedbacks")
 async def get_all_feedbacks(api_key: str = Header(...)):
@@ -89,4 +89,9 @@ async def get_all_feedbacks(api_key: str = Header(...)):
 @app.get("/download-certificate/{name}")
 async def download_certificate(name: str, api_key: str = Header(...)):
     verify_admin(api_key)
-    cert_path = os.pa_
+    cert_path = os.path.join("certificates", f"{name.replace(' ', '_')}.png")
+    if not os.path.exists(cert_path):
+        raise HTTPException(status_code=404, detail="Certificate not found")
+    with open(cert_path, "rb") as f:
+        content = f.read()
+    return Response(content, media_type="image/png")
